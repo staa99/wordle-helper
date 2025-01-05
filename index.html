@@ -95,7 +95,7 @@
 
 <script>
     const letterCount = getLetterCount()
-    const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ*';
+    const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
     let currentWord, letterStates, submissions;
     let words, popularity
 
@@ -122,16 +122,11 @@
                     return
                 }
 
-                // cycle between yellow and green
-                letterStates[i] = letterStates[i] === 2 ? 1 : 2;
+                // cycle between grey, yellow and green
+                letterStates[i] = letterStates[i] % 3 + 1;
                 updateInputDisplay();
             });
 
-            onHold(letterBox, () => {
-                currentWord = currentWord.slice(0, i);
-                letterStates = letterStates.slice(0, i).concat(Array(letterCount - i).fill(0));
-                updateInputDisplay();
-            });
             inputDisplay.appendChild(letterBox);
         }
     }
@@ -172,11 +167,12 @@
     }
 
     function updateSubmissionsDisplay() {
-        const submissionBoxes = submissions.map(s => {
+        const submissionBoxes = submissions.map(submission => {
+            const letters = decodeSubmissionWord(submission);
             let result = '<div class="submissions-container">'
             for (let i = 0; i < letterCount; i++) {
-                let color = getLetterColor(s[i] === '*' ? 0 : s[i].toLowerCase() === s[i] ? 2 : 1);
-                let char = s[i] === '*' ? '' : s[i].toUpperCase();
+                let color = getLetterColor(letters[i].state);
+                let char = letters[i].letter.toUpperCase();
                 result += `<div class="letter-box" style="background-color: ${color}">${char}</div>`
             }
             return result + '</div>'
@@ -188,6 +184,7 @@
     function getLetterColor(state) {
         if (state === 1) return '#ffd700'; // yellow
         if (state === 2) return '#00ff00'; // green
+        if (state === 3) return '#C0C0C0'; // grey
         return 'white';
     }
 
@@ -215,7 +212,7 @@
     function resetState() {
         submissions = [];
         currentWord = '';
-        letterStates = Array(letterCount).fill(0); // 0: normal, 1: yellow, 2: green
+        letterStates = Array(letterCount).fill(0); // 0: normal, 1: yellow, 2: green, 3: grey
         suggestionsDiv.innerHTML = '';
         submissionsDisplay.innerHTML = '';
         updateInputDisplay();
@@ -277,12 +274,7 @@
         if (!allWords) {
             const response = await fetch('all-words.txt')
             allWords = await response.text()
-
-            try {
-                localStorage.setItem('all-words', allWords)
-            } catch {
-                // quota exceeded - ignore
-            }
+            localStorage.setItem('all-words', allWords)
         }
 
         words = allWords
@@ -297,12 +289,7 @@
         if (!popularityData) {
             const response = await fetch('words-popularity.txt')
             popularityData = await response.text()
-
-            try {
-                localStorage.setItem('popularity', popularityData)
-            } catch {
-                // quota exceeded - ignore
-            }
+            localStorage.setItem('popularity', popularityData)
         }
 
         const lines = popularityData.split("\n").filter((x) => x.trim());
@@ -315,25 +302,39 @@
         popularity = popularityData
     }
 
-    function parseKnownLetters(words) {
-        const result = [];
-        for (const knownLetters of words) {
-            for (let i = 0; i < knownLetters.length; i++) {
+    function parseKnownLetters(submissions) {
+        const knownLetters = [];
+        let invalidLetters = []
+        for (const submission of submissions) {
+            const decodedSubmission = decodeSubmissionWord(submission)
+            for (let i = 0; i < decodedSubmission.length; i++) {
                 const position = i + 1;
-                const letter = knownLetters[i];
-
-                if (letter === "*") {
-                    continue;
+                const {letter, state} = decodedSubmission[i];
+                let resultPosition = 0
+                switch (state) {
+                    case 1:
+                        // yellow - letter is not in this position
+                        resultPosition = -position
+                        break;
+                    case 2:
+                        // green - letter is in this position
+                        resultPosition = position
+                        break;
+                    case 3:
+                        invalidLetters.push(letter)
                 }
 
-                if (letter.toLowerCase() === letter) {
-                    result.push([letter, position]);
-                } else {
-                    result.push([letter.toLowerCase(), -position]);
+                if (
+                    resultPosition &&
+                    !knownLetters.some(
+                        ([l, p]) => l === letter && p === resultPosition
+                    )
+                ) {
+                    knownLetters.push([letter, resultPosition]);
                 }
             }
         }
-        return result;
+        return {knownLetters, invalidLetters};
     }
 
     function prioritizeMultipleUniqueVowels(a, b) {
@@ -378,33 +379,34 @@
         return (popularity[b] || 0) - (popularity[a] || 0);
     }
 
-    function normalizeInputState(word, invalidLetters) {
+    function encodeSubmissionWord(word) {
         let result = ''
         for (let i = 0; i < letterCount; i++) {
-            let char = word[i] || '*'
-            if (invalidLetters.includes(char)) {
-                char = '*'
-            }
+            result += `${word[i] || '*'}${letterStates[i]}`
+        }
+        return result
+    }
 
-            if (letterStates[i] === 2) {
-                result += char.toLowerCase()
-            } else {
-                result += char.toUpperCase()
-            }
+    function decodeSubmissionWord(submission) {
+        let result = []
+        for (let i = 0; i < letterCount * 2; i += 2) {
+            result.push({
+                letter: submission[i],
+                state: Number(submission[i + 1])
+            })
         }
         return result
     }
 
     function getSuggestions(word) {
         word = word.toLowerCase();
-        const invalidLetters = Array.from(keyboard.getElementsByClassName('grey')).map(x => x.textContent.toLowerCase());
-        const normalizedWord = normalizeInputState(word, invalidLetters)
-        if (!submissions.includes(normalizedWord)) {
-            submissions.push(normalizedWord)
+        const submissionWord = encodeSubmissionWord(word)
+        if (!submissions.includes(submissionWord)) {
+            submissions.push(submissionWord)
             updateSubmissionsDisplay()
         }
 
-        const knownLetters = parseKnownLetters(submissions);
+        const {knownLetters, invalidLetters} = parseKnownLetters(submissions);
         let wordsArray = words
             .filter(
                 (word) =>
