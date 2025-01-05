@@ -13,10 +13,17 @@
             padding: 20px;
         }
 
-        #input-display {
+        #input-display, .submissions-container {
             display: flex;
             gap: 5px;
             margin-bottom: 20px;
+        }
+
+        .submission-group {
+            display: flex;
+            gap: 5px;
+            margin-bottom: 20px;
+            flex-direction: column;
         }
 
         .letter-box {
@@ -84,78 +91,97 @@
 </div>
 <button id="submit-btn">Submit</button>
 <div id="suggestions"></div>
+<div id="submissions"></div>
 
 <script>
     const letterCount = getLetterCount()
     const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ*';
-    let currentWord = '';
-    let letterStates = Array(letterCount).fill(0); // 0: normal, 1: yellow, 2: green
+    let currentWord, letterStates, submissions;
     let words, popularity
 
-    setup()
-
     const inputDisplay = document.getElementById('input-display');
+    const submissionsDisplay = document.getElementById('submissions');
     const keyboard = document.getElementById('keyboard');
     const submitBtn = document.getElementById('submit-btn');
     const suggestionsDiv = document.getElementById('suggestions');
     const backspaceBtn = document.getElementById('backspace-btn');
     const resetBtn = document.getElementById('reset-btn');
 
-    // Create input display
-    for (let i = 0; i < letterCount; i++) {
-        const letterBox = document.createElement('div');
-        letterBox.classList.add('letter-box');
-        onClick(letterBox, () => {
-            if (!currentWord[i] || currentWord[i] === '*') {
-                letterStates[i] = 0;
-                return
-            }
+    generateInputDisplay();
+    generateKeyboard();
+    resetState();
+    setup();
 
-            // cycle between yellow and green
-            letterStates[i] = letterStates[i] === 2 ? 1 : 2;
-            updateInputDisplay();
-        });
+    function generateInputDisplay() {
+        for (let i = 0; i < letterCount; i++) {
+            const letterBox = document.createElement('div');
+            letterBox.classList.add('letter-box');
+            onClick(letterBox, () => {
+                if (!currentWord[i] || currentWord[i] === '*') {
+                    letterStates[i] = 0;
+                    return
+                }
 
-        onHold(letterBox, () => {
-            currentWord = currentWord.slice(0, i);
-            letterStates = letterStates.slice(0, i).concat(Array(letterCount - i).fill(0));
-            updateInputDisplay();
-        });
-        inputDisplay.appendChild(letterBox);
+                // cycle between yellow and green
+                letterStates[i] = letterStates[i] === 2 ? 1 : 2;
+                updateInputDisplay();
+            });
+
+            onHold(letterBox, () => {
+                currentWord = currentWord.slice(0, i);
+                letterStates = letterStates.slice(0, i).concat(Array(letterCount - i).fill(0));
+                updateInputDisplay();
+            });
+            inputDisplay.appendChild(letterBox);
+        }
     }
 
-    // Create keyboard
-    letters.split('').forEach(letter => {
-        const key = document.createElement('div');
-        key.classList.add('key');
-        key.textContent = letter;
+    function generateKeyboard() {
+        letters.split('').forEach(letter => {
+            const key = document.createElement('div');
+            key.classList.add('key');
+            key.textContent = letter;
 
-        onClick(key, () => {
-            if (!key.classList.contains('grey') && currentWord.length < letterCount) {
-                currentWord += letter;
-                letterStates[currentWord.length - 1] = currentWord.slice(-1) === '*' ? 0 : 1;
-                updateInputDisplay();
-            }
-        })
+            onClick(key, () => {
+                if (!key.classList.contains('grey') && currentWord.length < letterCount) {
+                    currentWord += letter;
+                    letterStates[currentWord.length - 1] = currentWord.slice(-1) === '*' ? 0 : 1;
+                    updateInputDisplay();
+                }
+            })
 
-        onHold(key, () => {
-            if (!key.classList.contains('grey')) {
-                key.classList.add('grey');
-            } else {
-                key.classList.remove('grey')
-            }
-        })
+            onHold(key, () => {
+                if (!key.classList.contains('grey')) {
+                    key.classList.add('grey');
+                } else {
+                    key.classList.remove('grey')
+                }
+            })
 
-        keyboard.appendChild(key);
-    });
+            keyboard.appendChild(key);
+        });
+    }
 
     // Update input display
     function updateInputDisplay() {
         const letterBoxes = inputDisplay.getElementsByClassName('letter-box');
-        for (let i = 0; i < 5; i++) {
+        for (let i = 0; i < letterCount; i++) {
             letterBoxes[i].textContent = currentWord[i] || '';
             letterBoxes[i].style.backgroundColor = getLetterColor(letterStates[i]);
         }
+    }
+
+    function updateSubmissionsDisplay() {
+        const submissionBoxes = submissions.map(s => {
+            let result = '<div class="submissions-container">'
+            for (let i = 0; i < letterCount; i++) {
+                let color = getLetterColor(s[i] === '*' ? 0 : s[i].toLowerCase() === s[i] ? 2 : 1);
+                let char = s[i] === '*' ? '' : s[i].toUpperCase();
+                result += `<div class="letter-box" style="background-color: ${color}">${char}</div>`
+            }
+            return result + '</div>'
+        }).join('<br />')
+        submissionsDisplay.innerHTML = `<h3>Submissions:</h3><div class="submission-group">${submissionBoxes}</div>`;
     }
 
     // Get letter color based on state
@@ -183,37 +209,44 @@
 
     // Reset button click handler
     resetBtn.addEventListener('click', () => {
+        resetState();
+    });
+
+    function resetState() {
+        submissions = [];
         currentWord = '';
-        letterStates = Array(letterCount).fill(0);
+        letterStates = Array(letterCount).fill(0); // 0: normal, 1: yellow, 2: green
+        suggestionsDiv.innerHTML = '';
+        submissionsDisplay.innerHTML = '';
         updateInputDisplay();
-        const keys = keyboard.getElementsByClassName('key');
-        Array.from(keys).forEach(key => {
+        Array.from(keyboard.getElementsByClassName('key grey')).forEach(key => {
             key.classList.remove('grey');
         });
-        suggestionsDiv.innerHTML = '';
-    });
+    }
 
     function onHold(el, fn) {
         let pressTimer;
+        let holding = false;
 
         function activateTimer() {
+            holding = true;
             pressTimer = setTimeout(() => {
-                fn(el)
+                if (holding) {
+                    fn(el)
+                }
             }, 500);
         }
 
         function cancelTimer() {
+            holding = false;
             clearTimeout(pressTimer);
         }
 
         el.addEventListener('mousedown', activateTimer);
-        el.addEventListener('pointerdown', activateTimer);
 
 
         el.addEventListener('mouseup', cancelTimer);
         el.addEventListener('mouseleave', cancelTimer);
-        el.addEventListener('pointerup', cancelTimer);
-        el.addEventListener('pointerleave', cancelTimer);
     }
 
     function onClick(el, fn) {
@@ -345,10 +378,14 @@
         return (popularity[b] || 0) - (popularity[a] || 0);
     }
 
-    function normalizeInputState(word) {
+    function normalizeInputState(word, invalidLetters) {
         let result = ''
         for (let i = 0; i < letterCount; i++) {
             let char = word[i] || '*'
+            if (invalidLetters.includes(char)) {
+                char = '*'
+            }
+
             if (letterStates[i] === 2) {
                 result += char.toLowerCase()
             } else {
@@ -359,8 +396,15 @@
     }
 
     function getSuggestions(word) {
-        const invalidLetters = Array.from(keyboard.getElementsByClassName('grey')).map(x => x.textContent);
-        const knownLetters = parseKnownLetters([normalizeInputState(word)]);
+        word = word.toLowerCase();
+        const invalidLetters = Array.from(keyboard.getElementsByClassName('grey')).map(x => x.textContent.toLowerCase());
+        const normalizedWord = normalizeInputState(word, invalidLetters)
+        if (!submissions.includes(normalizedWord)) {
+            submissions.push(normalizedWord)
+            updateSubmissionsDisplay()
+        }
+
+        const knownLetters = parseKnownLetters(submissions);
         let wordsArray = words
             .filter(
                 (word) =>
@@ -373,6 +417,7 @@
                     ),
             );
 
+        const start = Date.now()
         wordsArray = sortArray(
             wordsArray,
             prioritizeUniqueLetters,
@@ -380,6 +425,8 @@
             (a, b) => prioritizeMostCommonLetters(a, b, wordsArray),
             (a, b) => prioritizePopularWords(a, b, popularity),
         );
+        const end = Date.now()
+        console.log('Time taken:', end - start, 'ms. Words:', wordsArray.length)
 
         return wordsArray
             .slice(0, 10)
